@@ -1,10 +1,16 @@
 import os
 import sys
 import logging
-from dotenv import load_dotenv
+from dotenv import load_dotenv, dotenv_values
+from pathlib import Path
 
-# Load environment variables from .env file
-load_dotenv()
+# Load environment variables from the repo root .env file, overriding any stale values
+ROOT_DOTENV = Path(__file__).resolve().parents[1] / ".env"
+load_dotenv(dotenv_path=ROOT_DOTENV, override=True)
+# Force set env vars from .env to ensure overrides even when a different key is present
+for key, value in dotenv_values(ROOT_DOTENV).items():
+    if value is not None:
+        os.environ[key] = str(value)
 
 from api.logging_config import setup_logging
 

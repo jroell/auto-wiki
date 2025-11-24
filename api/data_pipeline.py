@@ -8,9 +8,11 @@ import tiktoken
 import logging
 import base64
 import glob
+import shutil
 from adalflow.utils import get_adalflow_default_root_path
 from adalflow.core.db import LocalDB
 from api.config import configs, DEFAULT_EXCLUDED_DIRS, DEFAULT_EXCLUDED_FILES
+from api.gcs_cache import gcs_copy, gcs_download, gcs_exists
 from api.ollama_patch import OllamaDocumentProcessor
 from urllib.parse import urlparse, urlunparse, quote
 import requests
@@ -713,7 +715,8 @@ class DatabaseManager:
     def prepare_database(self, repo_url_or_path: str, repo_type: str = None, access_token: str = None,
                          embedder_type: str = None, is_ollama_embedder: bool = None,
                          excluded_dirs: List[str] = None, excluded_files: List[str] = None,
-                         included_dirs: List[str] = None, included_files: List[str] = None) -> List[Document]:
+                         included_dirs: List[str] = None, included_files: List[str] = None,
+                         progress_callback=None) -> List[Document]:
         """
         Create a new database from the repository.
 
@@ -738,9 +741,19 @@ class DatabaseManager:
             embedder_type = 'ollama' if is_ollama_embedder else None
         
         self.reset_database()
+        if progress_callback:
+            progress_callback("cloning")
         self._create_repo(repo_url_or_path, repo_type, access_token)
-        return self.prepare_db_index(embedder_type=embedder_type, excluded_dirs=excluded_dirs, excluded_files=excluded_files,
-                                   included_dirs=included_dirs, included_files=included_files)
+        if progress_callback:
+            progress_callback("scanning")
+        return self.prepare_db_index(
+            embedder_type=embedder_type,
+            excluded_dirs=excluded_dirs,
+            excluded_files=excluded_files,
+            included_dirs=included_dirs,
+            included_files=included_files,
+            progress_callback=progress_callback,
+        )
 
     def reset_database(self):
         """
@@ -783,6 +796,9 @@ class DatabaseManager:
             root_path = get_adalflow_default_root_path()
 
             os.makedirs(root_path, exist_ok=True)
+        cache_bucket = resolve_cache_bucket(configs.get("repository", {}).get("cache_bucket"))
+        cache_prefix = resolve_cache_prefix(configs.get("repository", {}).get("cache_prefix", "adalflow/repos"))
+
             # url
             if repo_url_or_path.startswith("https://") or repo_url_or_path.startswith("http://"):
                 # Extract the repository name from the URL
@@ -790,9 +806,18 @@ class DatabaseManager:
                 logger.info(f"Extracted repo name: {repo_name}")
 
                 save_repo_dir = os.path.join(root_path, "repos", repo_name)
+                gcs_repo_obj = f"{cache_prefix}/{repo_name}/repo.tgz"
+                gcs_db_obj = f"{cache_prefix}/{repo_name}/db.pkl"
 
-                # Check if the repository directory already exists and is not empty
-                if not (os.path.exists(save_repo_dir) and os.listdir(save_repo_dir)):
+                # Try to restore from GCS cache first
+                if cache_bucket and gcs_exists(cache_bucket, gcs_repo_obj):
+                    logger.info(f"Restoring repository from GCS gs://{cache_bucket}/{gcs_repo_obj}")
+                    os.makedirs(save_repo_dir, exist_ok=True)
+                    tmp_tgz = os.path.join(root_path, "repos", f"{repo_name}.tgz")
+                    gcs_download(cache_bucket, gcs_repo_obj, tmp_tgz)
+                    shutil.unpack_archive(tmp_tgz, save_repo_dir)
+                    os.remove(tmp_tgz)
+                elif not (os.path.exists(save_repo_dir) and os.listdir(save_repo_dir)):
                     # Only download if the repository doesn't exist or is empty
                     download_repo(repo_url_or_path, save_repo_dir, repo_type, access_token)
                 else:
@@ -800,6 +825,8 @@ class DatabaseManager:
             else:  # local path
                 repo_name = os.path.basename(repo_url_or_path)
                 save_repo_dir = repo_url_or_path
+                gcs_repo_obj = f"{cache_prefix}/{repo_name}/repo.tgz"
+                gcs_db_obj = f"{cache_prefix}/{repo_name}/db.pkl"
 
             save_db_file = os.path.join(root_path, "databases", f"{repo_name}.pkl")
             os.makedirs(save_repo_dir, exist_ok=True)
@@ -808,6 +835,9 @@ class DatabaseManager:
             self.repo_paths = {
                 "save_repo_dir": save_repo_dir,
                 "save_db_file": save_db_file,
+                "gcs_bucket": cache_bucket,
+                "gcs_repo_obj": gcs_repo_obj,
+                "gcs_db_obj": gcs_db_obj,
             }
             self.repo_url_or_path = repo_url_or_path
             logger.info(f"Repo paths: {self.repo_paths}")
@@ -818,7 +848,8 @@ class DatabaseManager:
 
     def prepare_db_index(self, embedder_type: str = None, is_ollama_embedder: bool = None, 
                         excluded_dirs: List[str] = None, excluded_files: List[str] = None,
-                        included_dirs: List[str] = None, included_files: List[str] = None) -> List[Document]:
+                        included_dirs: List[str] = None, included_files: List[str] = None,
+                        progress_callback=None) -> List[Document]:
         """
         Prepare the indexed database for the repository.
 
@@ -861,12 +892,36 @@ class DatabaseManager:
             included_dirs=included_dirs,
             included_files=included_files
         )
+        if progress_callback:
+            progress_callback(f"embedding {len(documents)} docs")
         self.db = transform_documents_and_save_to_db(
             documents, self.repo_paths["save_db_file"], embedder_type=embedder_type
         )
+
+        # Push artifacts to GCS if configured
+        bucket = self.repo_paths.get("gcs_bucket") or os.getenv("CACHE_BUCKET")
+        repo_obj = self.repo_paths.get("gcs_repo_obj")
+        db_obj = self.repo_paths.get("gcs_db_obj")
+        if bucket and repo_obj and db_obj:
+            try:
+                # Archive repo dir and upload
+                repo_dir = self.repo_paths["save_repo_dir"]
+                archive_path = os.path.join(get_adalflow_default_root_path(), "repos", f"{os.path.basename(repo_dir)}.tgz")
+                shutil.make_archive(archive_path.replace('.tgz',''), 'gztar', repo_dir)
+                gcs_copy(archive_path, bucket, repo_obj)
+                os.remove(archive_path)
+
+                # Upload DB
+                gcs_copy(self.repo_paths["save_db_file"], bucket, db_obj)
+                if progress_callback:
+                    progress_callback("cache uploaded")
+            except Exception as e:
+                logger.warning(f"Failed to upload cache to GCS: {e}")
         logger.info(f"Total documents: {len(documents)}")
         transformed_docs = self.db.get_transformed_data(key="split_and_embed")
         logger.info(f"Total transformed documents: {len(transformed_docs)}")
+        if progress_callback:
+            progress_callback("retriever ready")
         return transformed_docs
 
     def prepare_retriever(self, repo_url_or_path: str, repo_type: str = None, access_token: str = None):

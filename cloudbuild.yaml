@@ -1,0 +1,10 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'build-backend'
+    args: ['build', '-f', 'Dockerfile.backend', '-t', 'gcr.io/$PROJECT_ID/wiki-api:latest', '.']
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'build-frontend'
+    args: ['build', '-f', 'Dockerfile.frontend', '-t', 'gcr.io/$PROJECT_ID/wiki-web:latest', '.']
+images:
+  - 'gcr.io/$PROJECT_ID/wiki-api:latest'
+  - 'gcr.io/$PROJECT_ID/wiki-web:latest'

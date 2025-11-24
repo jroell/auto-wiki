@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field
 import google.generativeai as genai
 import asyncio
 
+from api.job_manager import job_manager, JobStatus
+
 # Configure logging
 from api.logging_config import setup_logging
 
@@ -144,6 +146,18 @@ class ModelConfig(BaseModel):
 class AuthorizationConfig(BaseModel):
     code: str = Field(..., description="Authorization code")
 
+
+class JobCreateRequest(BaseModel):
+    repo_url: str
+    type: str = "github"
+    token: Optional[str] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    excluded_dirs: Optional[List[str]] = None
+    excluded_files: Optional[List[str]] = None
+    included_dirs: Optional[List[str]] = None
+    included_files: Optional[List[str]] = None
+
 from api.config import configs, WIKI_AUTH_MODE, WIKI_AUTH_CODE
 
 @app.get("/lang/config")
@@ -217,7 +231,7 @@ async def get_model_config():
                     name="Google",
                     supportsCustomModel=True,
                     models=[
-                        Model(id="gemini-2.5-flash", name="Gemini 2.5 Flash")
+                        Model(id="gemini-3-pro-preview", name="Gemini 3 Pro Preview")
                     ]
                 )
             ],
@@ -540,10 +554,21 @@ async def delete_wiki_cache(
 @app.get("/health")
 async def health_check():
     """Health check endpoint for Docker and monitoring"""
+    from api.job_manager import job_manager
+    from api.gcs_cache import resolve_cache_bucket
+    cache_bucket = resolve_cache_bucket(configs.get("repository", {}).get("cache_bucket"))
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "service": "deepwiki-api"
+        "service": "deepwiki-api",
+        "jobs": {
+            "redis": bool(getattr(job_manager, "redis_store", None)),
+            "workers": getattr(job_manager.executor, "_max_workers", None),
+            "jobs_in_memory": len(job_manager.jobs),
+        },
+        "cache": {
+            "bucket": cache_bucket,
+        },
     }
 
 @app.get("/")
@@ -632,3 +657,94 @@ async def get_processed_projects():
     except Exception as e:
         logger.error(f"Error listing processed projects from {WIKI_CACHE_DIR}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to list processed projects from server cache.")
+
+
+# --- Job API (in-process registry) ---
+
+
+def _normalize_list(value: Optional[List[str]]) -> Optional[List[str]]:
+    if value is None:
+        return None
+    if isinstance(value, list):
+        items = value
+    else:
+        items = [value]
+    normalized = []
+    for item in items:
+        if not item:
+            continue
+        # split on commas or newlines
+        for part in str(item).replace("\r", "\n").split("\n"):
+            for token in part.split(","):
+                token = token.strip()
+                if token:
+                    normalized.append(token)
+    return normalized or None
+
+
+def _run_repo_job(job_obj, metadata: Dict[str, Any]):
+    from api.rag import RAG
+
+    def progress(step: str):
+        job_manager.update_job(job_obj.id, progress=step)
+
+    progress("initializing")
+
+    provider = metadata.get("provider") or configs.get("default_provider", "google")
+    model = metadata.get("model") or configs["providers"].get(provider, {}).get("default_model")
+    excluded_dirs = metadata.get("excluded_dirs")
+    excluded_files = metadata.get("excluded_files")
+    included_dirs = metadata.get("included_dirs")
+    included_files = metadata.get("included_files")
+    token = metadata.get("token")
+
+    rag = RAG(provider=provider, model=model)
+    progress("preparing retriever")
+    rag.prepare_retriever(
+        metadata["repo_url"],
+        metadata.get("type"),
+        token,
+        excluded_dirs,
+        excluded_files,
+        included_dirs,
+        included_files,
+        progress_callback=progress,
+    )
+    progress("embedding complete")
+
+
+@app.post("/api/jobs")
+async def create_job(request: JobCreateRequest):
+    provider = request.provider or configs.get("default_provider", "google")
+    model = request.model or configs["providers"].get(provider, {}).get("default_model")
+
+    metadata = {
+        "provider": provider,
+        "model": model,
+        "token": request.token,
+        "repo_url": request.repo_url,
+        "type": request.type,
+        "excluded_dirs": _normalize_list(request.excluded_dirs),
+        "excluded_files": _normalize_list(request.excluded_files),
+        "included_dirs": _normalize_list(request.included_dirs),
+        "included_files": _normalize_list(request.included_files),
+    }
+
+    def task(job_obj):
+        return _run_repo_job(job_obj, metadata)
+
+    job = job_manager.create_job(request.repo_url, request.type, metadata, task)
+    return job.to_dict()
+
+
+@app.get("/api/jobs")
+async def list_jobs():
+    return job_manager.list_jobs()
+
+
+@app.get("/api/jobs/{job_id}")
+async def get_job(job_id: str):
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job

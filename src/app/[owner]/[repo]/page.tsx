@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable react-hooks/exhaustive-deps */
 'use client';
 
 import Ask from '@/components/Ask';
@@ -231,6 +232,8 @@ export default function RepoWikiPage() {
   const [wikiStructure, setWikiStructure] = useState<WikiStructure | undefined>();
   const [currentPageId, setCurrentPageId] = useState<string | undefined>();
   const [generatedPages, setGeneratedPages] = useState<Record<string, WikiPage>>({});
+  const [prepJobId, setPrepJobId] = useState<string | null>(null);
+  const [prepJobStatus, setPrepJobStatus] = useState<string | null>(null);
   const [pagesInProgress, setPagesInProgress] = useState(new Set<string>());
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -678,7 +681,48 @@ Remember:
         setLoadingMessage(undefined); // Clear specific loading message
       }
     });
-  }, [generatedPages, currentToken, effectiveRepoInfo, selectedProviderState, selectedModelState, isCustomSelectedModelState, customSelectedModelState, modelExcludedDirs, modelExcludedFiles, language, activeContentRequests, generateFileUrl]);
+  }, [generatedPages, currentToken, effectiveRepoInfo, selectedProviderState, selectedModelState, isCustomSelectedModelState, customSelectedModelState, modelExcludedDirs, modelExcludedFiles, language, activeContentRequests, generateFileUrl, modelIncludedDirs, modelIncludedFiles]);
+
+  // Start a backend prep/embedding job and wait until it finishes (non-blocking for UI navigation).
+  const ensureRepoPrepared = useCallback(async (repoUrl: string, repoType: string) => {
+    try {
+      setPrepJobStatus('starting');
+      setLoadingMessage('Preparing repository (indexing & embeddings)...');
+      const createRes = await fetch('/api/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repo_url: repoUrl, type: repoType })
+      });
+      if (!createRes.ok) {
+        const txt = await createRes.text().catch(() => '');
+        throw new Error(`Job create failed: ${createRes.status} ${txt}`);
+      }
+      const job = await createRes.json();
+      setPrepJobId(job.id);
+      setPrepJobStatus(job.status);
+
+      // Poll until done/failed
+      const start = Date.now();
+      while (true) {
+        const res = await fetch(`/api/jobs/${job.id}`, { cache: 'no-store' });
+        if (!res.ok) {
+          const txt = await res.text().catch(() => '');
+          throw new Error(`Job status failed: ${res.status} ${txt}`);
+        }
+        const data = await res.json();
+        setPrepJobStatus(data.status);
+        if (data.progress) setLoadingMessage(`Preparing repository: ${data.progress}`);
+        if (data.status === 'success') return;
+        if (data.status === 'failed') throw new Error(data.error || 'Job failed');
+        if (Date.now() - start > 10 * 60 * 1000) throw new Error('Job timed out');
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown prep error';
+      setPrepJobStatus('failed');
+      throw new Error(msg);
+    }
+  }, []);
 
   // Determine the wiki structure from repository data
   const determineWikiStructure = useCallback(async (fileTree: string, readme: string, owner: string, repo: string) => {
@@ -695,12 +739,50 @@ Remember:
       return;
     }
 
-    try {
+      try {
       setStructureRequestInProgress(true);
       setLoadingMessage(messages.loading?.determiningStructure || 'Determining wiki structure...');
 
       // Get repository URL
       const repoUrl = getRepoUrl(effectiveRepoInfo);
+
+      // Ensure embeddings/prep done via backend job before structuring
+      try {
+        const createRes = await fetch('/api/jobs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repo_url: repoUrl, type: effectiveRepoInfo.type })
+        });
+        if (!createRes.ok) {
+          const txt = await createRes.text().catch(() => '');
+          throw new Error(`Job create failed: ${createRes.status} ${txt}`);
+        }
+        const job = await createRes.json();
+        setPrepJobId(job.id);
+        setPrepJobStatus(job.status);
+
+        const start = Date.now();
+        while (true) {
+          const res = await fetch(`/api/jobs/${job.id}/progress`, { cache: 'no-store' });
+          if (!res.ok) {
+            const txt = await res.text().catch(() => '');
+            throw new Error(`Job status failed: ${res.status} ${txt}`);
+          }
+          const data = await res.json();
+          setPrepJobStatus(data.status);
+          if (data.progress) setLoadingMessage(`Preparing repository: ${data.progress}`);
+          if (data.status === 'success') break;
+          if (data.status === 'failed') throw new Error(data.error || 'Job failed');
+          if (Date.now() - start > 10 * 60 * 1000) throw new Error('Job timed out');
+          await new Promise(r => setTimeout(r, 1500));
+        }
+      } catch (prepErr) {
+        console.error('Prep job failed:', prepErr);
+        setError('Repository preparation failed. Please retry.');
+        setIsLoading(false);
+        setStructureRequestInProgress(false);
+        return;
+      }
 
       // Prepare request body
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { FaWikipediaW, FaGithub, FaCoffee, FaTwitter } from 'react-icons/fa';
@@ -79,7 +79,7 @@ export default function Home() {
 
   const REPO_CONFIG_CACHE_KEY = 'deepwikiRepoConfigCache';
 
-  const loadConfigFromCache = (repoUrl: string) => {
+  const loadConfigFromCache = useCallback((repoUrl: string) => {
     if (!repoUrl) return;
     try {
       const cachedConfigs = localStorage.getItem(REPO_CONFIG_CACHE_KEY);
@@ -103,7 +103,7 @@ export default function Home() {
     } catch (error) {
       console.error('Error loading config from localStorage:', error);
     }
-  };
+  }, [language]);
 
   const handleRepositoryInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newRepoUrl = e.target.value;
@@ -114,12 +114,11 @@ export default function Home() {
         loadConfigFromCache(newRepoUrl);
     }
   };
-
   useEffect(() => {
     if (repositoryInput) {
       loadConfigFromCache(repositoryInput);
     }
-  }, []);
+  }, [repositoryInput, loadConfigFromCache]);
 
   // Provider-based model selection state
   const [provider, setProvider] = useState<string>('');

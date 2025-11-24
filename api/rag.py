@@ -202,8 +202,15 @@ class RAG(adal.Component):
             assert instance is not None, "RAG instance is no longer available, but the query embedder was called."
             return instance.embedder(input=query)
 
-        # Use single string embedder for Ollama, regular embedder for others
-        self.query_embedder = single_string_embedder if self.is_ollama_embedder else self.embedder
+        # Use single string embedder for Ollama, and a task-tuned query embedder for Google
+        if self.is_ollama_embedder:
+            self.query_embedder = single_string_embedder
+        elif self.embedder_type == "google":
+            def _query_embedder(q):
+                return self.embedder(input=q, model_kwargs={"task_type": "RETRIEVAL_QUERY"})
+            self.query_embedder = _query_embedder
+        else:
+            self.query_embedder = self.embedder
 
         self.initialize_db_manager()
 
@@ -344,7 +351,8 @@ IMPORTANT FORMATTING RULES:
 
     def prepare_retriever(self, repo_url_or_path: str, type: str = "github", access_token: str = None,
                       excluded_dirs: List[str] = None, excluded_files: List[str] = None,
-                      included_dirs: List[str] = None, included_files: List[str] = None):
+                      included_dirs: List[str] = None, included_files: List[str] = None,
+                      progress_callback=None):
         """
         Prepare the retriever for a repository.
         Will load database from local storage if available.
@@ -367,7 +375,8 @@ IMPORTANT FORMATTING RULES:
             excluded_dirs=excluded_dirs,
             excluded_files=excluded_files,
             included_dirs=included_dirs,
-            included_files=included_files
+            included_files=included_files,
+            progress_callback=progress_callback
         )
         logger.info(f"Loaded {len(self.transformed_docs)} documents for retrieval")
 
