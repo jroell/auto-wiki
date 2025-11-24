@@ -46,6 +46,9 @@ wheels/
 # misc
 .DS_Store
 *.pem
+AGENTS.md
+WARP.md
+repomix-output.xml
 
 # debug
 npm-debug.log*
