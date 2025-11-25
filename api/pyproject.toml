@@ -1,7 +1,7 @@
 [project]
-name = "open-deepwiki-api"
+name = "auto-wiki-api"
 version = "1.0.0"
-description = "Backend API for DeepWiki, providing smart code analysis and AI-powered documentation generation."
+description = "Backend API for AutoWiki, providing smart code analysis and AI-powered documentation generation."
 license = {text = "MIT License"}
 
 [tool.poetry]

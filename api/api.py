@@ -9,6 +9,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 import google.generativeai as genai
 import asyncio
+import time
 
 from api.job_manager import job_manager, JobStatus
 
@@ -24,6 +25,28 @@ app = FastAPI(
     title="Streaming API",
     description="API for streaming chat completions"
 )
+
+# Simple timing middleware to log request durations
+@app.middleware("http")
+async def timing_middleware(request: Request, call_next):
+    start = time.perf_counter()
+    response = None
+    try:
+        response = await call_next(request)
+        return response
+    finally:
+        duration_ms = (time.perf_counter() - start) * 1000
+        logger.info(
+            "request_complete",
+            extra={
+                "timing": {
+                    "path": request.url.path,
+                    "method": request.method,
+                    "status": getattr(response, "status_code", None),
+                    "duration_ms": round(duration_ms, 2),
+                }
+            },
+        )
 
 # Configure CORS
 app.add_middleware(
@@ -421,7 +444,7 @@ os.makedirs(WIKI_CACHE_DIR, exist_ok=True)
 
 def get_wiki_cache_path(owner: str, repo: str, repo_type: str, language: str) -> str:
     """Generates the file path for a given wiki cache."""
-    filename = f"deepwiki_cache_{repo_type}_{owner}_{repo}_{language}.json"
+    filename = f"autowiki_cache_{repo_type}_{owner}_{repo}_{language}.json"
     return os.path.join(WIKI_CACHE_DIR, filename)
 
 async def read_wiki_cache(owner: str, repo: str, repo_type: str, language: str) -> Optional[WikiCacheData]:
@@ -560,7 +583,7 @@ async def health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "service": "deepwiki-api",
+        "service": "autowiki-api",
         "jobs": {
             "redis": bool(getattr(job_manager, "redis_store", None)),
             "workers": getattr(job_manager.executor, "_max_workers", None),
@@ -603,7 +626,7 @@ async def root():
 async def get_processed_projects():
     """
     Lists all processed projects found in the wiki cache directory.
-    Projects are identified by files named like: deepwiki_cache_{repo_type}_{owner}_{repo}_{language}.json
+    Projects are identified by files named like: autowiki_cache_{repo_type}_{owner}_{repo}_{language}.json
     """
     project_entries: List[ProcessedProjectEntry] = []
     # WIKI_CACHE_DIR is already defined globally in the file
@@ -617,15 +640,15 @@ async def get_processed_projects():
         filenames = await asyncio.to_thread(os.listdir, WIKI_CACHE_DIR) # Use asyncio.to_thread for os.listdir
 
         for filename in filenames:
-            if filename.startswith("deepwiki_cache_") and filename.endswith(".json"):
+            if filename.startswith("autowiki_cache_") and filename.endswith(".json"):
                 file_path = os.path.join(WIKI_CACHE_DIR, filename)
                 try:
                     stats = await asyncio.to_thread(os.stat, file_path) # Use asyncio.to_thread for os.stat
-                    parts = filename.replace("deepwiki_cache_", "").replace(".json", "").split('_')
+                    parts = filename.replace("autowiki_cache_", "").replace(".json", "").split('_')
 
                     # Expecting repo_type_owner_repo_language
-                    # Example: deepwiki_cache_github_AsyncFuncAI_deepwiki-open_en.json
-                    # parts = [github, AsyncFuncAI, deepwiki-open, en]
+                    # Example: autowiki_cache_github_jroell_auto-wiki_en.json
+                    # parts = [github, jroell, auto-wiki, en]
                     if len(parts) >= 4:
                         repo_type = parts[0]
                         owner = parts[1]

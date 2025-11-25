@@ -90,7 +90,7 @@ const wikiStyles = `
 
 // Helper function to generate cache key for localStorage
 const getCacheKey = (owner: string, repo: string, repoType: string, language: string, isComprehensive: boolean = true): string => {
-  return `deepwiki_cache_${repoType}_${owner}_${repo}_${language}_${isComprehensive ? 'comprehensive' : 'concise'}`;
+  return `autowiki_cache_${repoType}_${owner}_${repo}_${language}_${isComprehensive ? 'comprehensive' : 'concise'}`;
 };
 
 // Helper function to add tokens and other parameters to request body
@@ -370,7 +370,7 @@ export default function RepoWikiPage() {
     };
 
     fetchAuthStatus();
-  }, []);
+  }, [currentToken]);
 
   // Generate content for a wiki page
   const generatePageContent = useCallback(async (page: WikiPage, owner: string, repo: string) => {
@@ -688,10 +688,14 @@ Remember:
     try {
       setPrepJobStatus('starting');
       setLoadingMessage('Preparing repository (indexing & embeddings)...');
-      const createRes = await fetch('/api/jobs', {
+    const createRes = await fetch('/api/jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repo_url: repoUrl, type: repoType })
+        body: JSON.stringify({
+          repo_url: repoUrl,
+          type: repoType,
+          ...(currentToken ? { token: currentToken } : {})
+        })
       });
       if (!createRes.ok) {
         const txt = await createRes.text().catch(() => '');
@@ -751,7 +755,11 @@ Remember:
         const createRes = await fetch('/api/jobs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ repo_url: repoUrl, type: effectiveRepoInfo.type })
+          body: JSON.stringify({
+            repo_url: repoUrl,
+            type: effectiveRepoInfo.type,
+            ...(currentToken ? { token: currentToken } : {})
+          })
         });
         if (!createRes.ok) {
           const txt = await createRes.text().catch(() => '');

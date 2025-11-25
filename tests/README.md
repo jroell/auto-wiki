@@ -1,6 +1,6 @@
-# DeepWiki Tests
+# AutoWiki Tests
 
-This directory contains all tests for the DeepWiki project, organized by type and scope.
+This directory contains all tests for the AutoWiki project, organized by type and scope.
 
 ## Directory Structure
 

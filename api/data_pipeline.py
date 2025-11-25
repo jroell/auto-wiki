@@ -12,11 +12,12 @@ import shutil
 from adalflow.utils import get_adalflow_default_root_path
 from adalflow.core.db import LocalDB
 from api.config import configs, DEFAULT_EXCLUDED_DIRS, DEFAULT_EXCLUDED_FILES
-from api.gcs_cache import gcs_copy, gcs_download, gcs_exists
+from api.gcs_cache import gcs_copy, gcs_download, gcs_exists, resolve_cache_bucket, resolve_cache_prefix
 from api.ollama_patch import OllamaDocumentProcessor
 from urllib.parse import urlparse, urlunparse, quote
 import requests
 from requests.exceptions import RequestException
+from api.utils.timing import log_duration
 
 from api.tools.embedder import get_embedder
 
@@ -82,54 +83,55 @@ def download_repo(repo_url: str, local_path: str, repo_type: str = None, access_
         str: The output message from the `git` command.
     """
     try:
-        # Check if Git is installed
-        logger.info(f"Preparing to clone repository to {local_path}")
-        subprocess.run(
-            ["git", "--version"],
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        with log_duration(logger, "clone_repo", {"repo_url": repo_url, "dest": local_path}):
+            # Check if Git is installed
+            logger.info(f"Preparing to clone repository to {local_path}")
+            subprocess.run(
+                ["git", "--version"],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
 
-        # Check if repository already exists
-        if os.path.exists(local_path) and os.listdir(local_path):
-            # Directory exists and is not empty
-            logger.warning(f"Repository already exists at {local_path}. Using existing repository.")
-            return f"Using existing repository at {local_path}"
+            # Check if repository already exists
+            if os.path.exists(local_path) and os.listdir(local_path):
+                # Directory exists and is not empty
+                logger.warning(f"Repository already exists at {local_path}. Using existing repository.")
+                return f"Using existing repository at {local_path}"
 
-        # Ensure the local path exists
-        os.makedirs(local_path, exist_ok=True)
+            # Ensure the local path exists
+            os.makedirs(local_path, exist_ok=True)
 
-        # Prepare the clone URL with access token if provided
-        clone_url = repo_url
-        if access_token:
-            parsed = urlparse(repo_url)
-            # Determine the repository type and format the URL accordingly
-            if repo_type == "github":
-                # Format: https://{token}@{domain}/owner/repo.git
-                # Works for both github.com and enterprise GitHub domains
-                clone_url = urlunparse((parsed.scheme, f"{access_token}@{parsed.netloc}", parsed.path, '', '', ''))
-            elif repo_type == "gitlab":
-                # Format: https://oauth2:{token}@gitlab.com/owner/repo.git
-                clone_url = urlunparse((parsed.scheme, f"oauth2:{access_token}@{parsed.netloc}", parsed.path, '', '', ''))
-            elif repo_type == "bitbucket":
-                # Format: https://x-token-auth:{token}@bitbucket.org/owner/repo.git
-                clone_url = urlunparse((parsed.scheme, f"x-token-auth:{access_token}@{parsed.netloc}", parsed.path, '', '', ''))
+            # Prepare the clone URL with access token if provided
+            clone_url = repo_url
+            if access_token:
+                parsed = urlparse(repo_url)
+                # Determine the repository type and format the URL accordingly
+                if repo_type == "github":
+                    # Format: https://{token}@{domain}/owner/repo.git
+                    # Works for both github.com and enterprise GitHub domains
+                    clone_url = urlunparse((parsed.scheme, f"{access_token}@{parsed.netloc}", parsed.path, '', '', ''))
+                elif repo_type == "gitlab":
+                    # Format: https://oauth2:{token}@gitlab.com/owner/repo.git
+                    clone_url = urlunparse((parsed.scheme, f"oauth2:{access_token}@{parsed.netloc}", parsed.path, '', '', ''))
+                elif repo_type == "bitbucket":
+                    # Format: https://x-token-auth:{token}@bitbucket.org/owner/repo.git
+                    clone_url = urlunparse((parsed.scheme, f"x-token-auth:{access_token}@{parsed.netloc}", parsed.path, '', '', ''))
 
-            logger.info("Using access token for authentication")
+                logger.info("Using access token for authentication")
 
-        # Clone the repository
-        logger.info(f"Cloning repository from {repo_url} to {local_path}")
-        # We use repo_url in the log to avoid exposing the token in logs
-        result = subprocess.run(
-            ["git", "clone", "--depth=1", "--single-branch", clone_url, local_path],
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+            # Clone the repository
+            logger.info(f"Cloning repository from {repo_url} to {local_path}")
+            # We use repo_url in the log to avoid exposing the token in logs
+            result = subprocess.run(
+                ["git", "clone", "--depth=1", "--single-branch", clone_url, local_path],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
 
-        logger.info("Repository cloned successfully")
-        return result.stdout.decode("utf-8")
+            logger.info("Repository cloned successfully")
+            return result.stdout.decode("utf-8")
 
     except subprocess.CalledProcessError as e:
         error_msg = e.stderr.decode('utf-8')
@@ -796,8 +798,8 @@ class DatabaseManager:
             root_path = get_adalflow_default_root_path()
 
             os.makedirs(root_path, exist_ok=True)
-        cache_bucket = resolve_cache_bucket(configs.get("repository", {}).get("cache_bucket"))
-        cache_prefix = resolve_cache_prefix(configs.get("repository", {}).get("cache_prefix", "adalflow/repos"))
+            cache_bucket = resolve_cache_bucket(configs.get("repository", {}).get("cache_bucket"))
+            cache_prefix = resolve_cache_prefix(configs.get("repository", {}).get("cache_prefix", "adalflow/repos"))
 
             # url
             if repo_url_or_path.startswith("https://") or repo_url_or_path.startswith("http://"):
@@ -811,12 +813,13 @@ class DatabaseManager:
 
                 # Try to restore from GCS cache first
                 if cache_bucket and gcs_exists(cache_bucket, gcs_repo_obj):
-                    logger.info(f"Restoring repository from GCS gs://{cache_bucket}/{gcs_repo_obj}")
-                    os.makedirs(save_repo_dir, exist_ok=True)
-                    tmp_tgz = os.path.join(root_path, "repos", f"{repo_name}.tgz")
-                    gcs_download(cache_bucket, gcs_repo_obj, tmp_tgz)
-                    shutil.unpack_archive(tmp_tgz, save_repo_dir)
-                    os.remove(tmp_tgz)
+                    with log_duration(logger, "restore_repo_cache", {"repo": repo_name, "bucket": cache_bucket}):
+                        logger.info(f"Restoring repository from GCS gs://{cache_bucket}/{gcs_repo_obj}")
+                        os.makedirs(save_repo_dir, exist_ok=True)
+                        tmp_tgz = os.path.join(root_path, "repos", f"{repo_name}.tgz")
+                        gcs_download(cache_bucket, gcs_repo_obj, tmp_tgz)
+                        shutil.unpack_archive(tmp_tgz, save_repo_dir)
+                        os.remove(tmp_tgz)
                 elif not (os.path.exists(save_repo_dir) and os.listdir(save_repo_dir)):
                     # Only download if the repository doesn't exist or is empty
                     download_repo(repo_url_or_path, save_repo_dir, repo_type, access_token)
@@ -873,8 +876,9 @@ class DatabaseManager:
         if self.repo_paths and os.path.exists(self.repo_paths["save_db_file"]):
             logger.info("Loading existing database...")
             try:
-                self.db = LocalDB.load_state(self.repo_paths["save_db_file"])
-                documents = self.db.get_transformed_data(key="split_and_embed")
+                with log_duration(logger, "load_existing_db", {"db_file": self.repo_paths["save_db_file"]}):
+                    self.db = LocalDB.load_state(self.repo_paths["save_db_file"])
+                    documents = self.db.get_transformed_data(key="split_and_embed")
                 if documents:
                     logger.info(f"Loaded {len(documents)} documents from existing database")
                     return documents
@@ -884,19 +888,21 @@ class DatabaseManager:
 
         # prepare the database
         logger.info("Creating new database...")
-        documents = read_all_documents(
-            self.repo_paths["save_repo_dir"],
-            embedder_type=embedder_type,
-            excluded_dirs=excluded_dirs,
-            excluded_files=excluded_files,
-            included_dirs=included_dirs,
-            included_files=included_files
-        )
+        with log_duration(logger, "read_all_documents", {"repo_dir": self.repo_paths["save_repo_dir"]}):
+            documents = read_all_documents(
+                self.repo_paths["save_repo_dir"],
+                embedder_type=embedder_type,
+                excluded_dirs=excluded_dirs,
+                excluded_files=excluded_files,
+                included_dirs=included_dirs,
+                included_files=included_files
+            )
         if progress_callback:
             progress_callback(f"embedding {len(documents)} docs")
-        self.db = transform_documents_and_save_to_db(
-            documents, self.repo_paths["save_db_file"], embedder_type=embedder_type
-        )
+        with log_duration(logger, "embed_and_save", {"docs": len(documents)}):
+            self.db = transform_documents_and_save_to_db(
+                documents, self.repo_paths["save_db_file"], embedder_type=embedder_type
+            )
 
         # Push artifacts to GCS if configured
         bucket = self.repo_paths.get("gcs_bucket") or os.getenv("CACHE_BUCKET")
@@ -904,17 +910,18 @@ class DatabaseManager:
         db_obj = self.repo_paths.get("gcs_db_obj")
         if bucket and repo_obj and db_obj:
             try:
-                # Archive repo dir and upload
-                repo_dir = self.repo_paths["save_repo_dir"]
-                archive_path = os.path.join(get_adalflow_default_root_path(), "repos", f"{os.path.basename(repo_dir)}.tgz")
-                shutil.make_archive(archive_path.replace('.tgz',''), 'gztar', repo_dir)
-                gcs_copy(archive_path, bucket, repo_obj)
-                os.remove(archive_path)
+                with log_duration(logger, "upload_cache", {"repo": repo_obj, "db": db_obj, "bucket": bucket}):
+                    # Archive repo dir and upload
+                    repo_dir = self.repo_paths["save_repo_dir"]
+                    archive_path = os.path.join(get_adalflow_default_root_path(), "repos", f"{os.path.basename(repo_dir)}.tgz")
+                    shutil.make_archive(archive_path.replace('.tgz',''), 'gztar', repo_dir)
+                    gcs_copy(archive_path, bucket, repo_obj)
+                    os.remove(archive_path)
 
-                # Upload DB
-                gcs_copy(self.repo_paths["save_db_file"], bucket, db_obj)
-                if progress_callback:
-                    progress_callback("cache uploaded")
+                    # Upload DB
+                    gcs_copy(self.repo_paths["save_db_file"], bucket, db_obj)
+                    if progress_callback:
+                        progress_callback("cache uploaded")
             except Exception as e:
                 logger.warning(f"Failed to upload cache to GCS: {e}")
         logger.info(f"Total documents: {len(documents)}")

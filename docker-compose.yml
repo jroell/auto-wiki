@@ -1,5 +1,5 @@
 services:
-  deepwiki:
+  autowiki:
     build:
       context: .
       dockerfile: Dockerfile

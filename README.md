@@ -1,8 +1,8 @@
-# DeepWiki-Open
+# AutoWiki-Open
 
-![DeepWiki Banner](screenshots/Deepwiki.png)
+![AutoWiki Banner](screenshots/Deepwiki.png)
 
-**DeepWiki** is my own implementation attempt of DeepWiki, automatically creates beautiful, interactive wikis for any GitHub, GitLab, or BitBucket repository! Just enter a repo name, and DeepWiki will:
+**AutoWiki** is my own implementation attempt of AutoWiki, automatically creates beautiful, interactive wikis for any GitHub, GitLab, or BitBucket repository! Just enter a repo name, and AutoWiki will:
 
 1. Analyze the code structure
 2. Generate comprehensive documentation
@@ -34,8 +34,8 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/AsyncFuncAI/deepwiki-open.git
-cd deepwiki-open
+git clone https://github.com/jroell/auto-wiki.git
+cd auto-wiki
 
 # Create a .env file with your API keys
 echo "GOOGLE_API_KEY=your_google_api_key" > .env
@@ -54,7 +54,7 @@ echo "AZURE_OPENAI_VERSION=your_azure_openai_version" >> .env
 docker-compose up
 ```
 
-For detailed instructions on using DeepWiki with Ollama and Docker, see [Ollama Instructions](Ollama-instruction.md).
+For detailed instructions on using AutoWiki with Ollama and Docker, see [Ollama Instructions](Ollama-instruction.md).
 
 > 💡 **Where to get these keys:**
 > - Get a Google API key from [Google AI Studio](https://makersuite.google.com/app/apikey)
@@ -106,7 +106,7 @@ npm run dev
 yarn dev
 ```
 
-#### Step 4: Use DeepWiki!
+#### Step 4: Use AutoWiki!
 
 1. Open [http://localhost:3000](http://localhost:3000) in your browser
 2. Enter a GitHub, GitLab, or Bitbucket repository (like `https://github.com/openai/codex`, `https://github.com/microsoft/autogen`, `https://gitlab.com/gitlab-org/gitlab`, or `https://bitbucket.org/redradish/atlassian_app_versions`)
@@ -115,7 +115,7 @@ yarn dev
 
 ## 🔍 How It Works
 
-DeepWiki uses AI to:
+AutoWiki uses AI to:
 
 1. Clone and analyze the GitHub, GitLab, or Bitbucket repository (including private repos with token authentication)
 2. Create embeddings of the code for smart retrieval
@@ -150,7 +150,7 @@ graph TD
     D --> F[Create Visual Diagrams]
     E --> G[Organize as Wiki]
     F --> G
-    G --> H[Interactive DeepWiki]
+    G --> H[Interactive AutoWiki]
 
     classDef process stroke-width:2px;
     classDef data stroke-width:2px;
@@ -166,7 +166,7 @@ graph TD
 ## 🛠️ Project Structure
 
 ```
-deepwiki/
+AutoWiki/
 ├── api/                  # Backend API server
 │   ├── main.py           # API entry point
 │   ├── api.py            # FastAPI implementation
@@ -187,7 +187,7 @@ deepwiki/
 
 ## 🤖 Provider-Based Model Selection System
 
-DeepWiki now implements a flexible provider-based model selection system supporting multiple LLM providers:
+AutoWiki now implements a flexible provider-based model selection system supporting multiple LLM providers:
 
 ### Supported Providers and Models
 
@@ -222,7 +222,7 @@ DEEPWIKI_CONFIG_DIR=/path/to/custom/config/dir  # Optional, for custom config fi
 
 ### Configuration Files
 
-DeepWiki uses JSON configuration files to manage various aspects of the system:
+AutoWiki uses JSON configuration files to manage various aspects of the system:
 
 1. **`generator.json`**: Configuration for text generation models
    - Defines available model providers (Google, OpenAI, OpenRouter, Azure, Ollama)
@@ -258,7 +258,7 @@ The OpenAI Client's base_url configuration is designed primarily for enterprise 
 - Allows organizations to use their own self-hosted or custom-deployed LLM services
 - Supports integration with third-party OpenAI API-compatible services
 
-**Coming Soon**: In future updates, DeepWiki will support a mode where users need to provide their own API keys in requests. This will allow enterprise customers with private channels to use their existing API arrangements without sharing credentials with the DeepWiki deployment.
+**Coming Soon**: In future updates, AutoWiki will support a mode where users need to provide their own API keys in requests. This will allow enterprise customers with private channels to use their existing API arrangements without sharing credentials with the AutoWiki deployment.
 
 ## 🧩 Using OpenAI-Compatible Embedding Models (e.g., Alibaba Qwen)
 
@@ -276,7 +276,7 @@ This allows you to seamlessly switch to any OpenAI-compatible embedding service 
 
 ## 🧠 Using Google AI Embeddings
 
-DeepWiki now supports Google AI's latest embedding models as an alternative to OpenAI embeddings. This provides better integration when you're already using Google Gemini models for text generation.
+AutoWiki now supports Google AI's latest embedding models as an alternative to OpenAI embeddings. This provides better integration when you're already using Google Gemini models for text generation.
 
 ### Features
 
@@ -307,7 +307,7 @@ docker run -p 8001:8001 -p 3000:3000 \
   -e GOOGLE_API_KEY=your_google_api_key \
   -e DEEPWIKI_EMBEDDER_TYPE=google \
   -v ~/.adalflow:/root/.adalflow \
-  ghcr.io/asyncfuncai/deepwiki-open:latest
+  ghcr.io/asyncfuncai/auto-wiki:latest
 ```
 
 **Option 3: Docker Compose**
@@ -359,7 +359,7 @@ export DEEPWIKI_EMBEDDER_TYPE=ollama
 
 ### Logging
 
-DeepWiki uses Python's built-in `logging` module for diagnostic output. You can configure the verbosity and log file destination via environment variables:
+AutoWiki uses Python's built-in `logging` module for diagnostic output. You can configure the verbosity and log file destination via environment variables:
 
 | Variable        | Description                                                        | Default                      |
 |-----------------|--------------------------------------------------------------------|------------------------------|
@@ -421,7 +421,7 @@ Other API keys are only required when configuring and using models from the corr
 
 ## Authorization Mode
 
-DeepWiki can be configured to run in an authorization mode, where wiki generation requires a valid authorization code. This is useful if you want to control who can use the generation feature.
+AutoWiki can be configured to run in an authorization mode, where wiki generation requires a valid authorization code. This is useful if you want to control who can use the generation feature.
 Restricts frontend initiation and protects cache deletion, but doesn't fully prevent backend generation if API endpoints are hit directly.
 
 To enable authorization mode, set the following environment variables:
@@ -433,13 +433,13 @@ If `DEEPWIKI_AUTH_MODE` is not set or is set to `false` (or any other value than
 
 ### Docker Setup
 
-You can use Docker to run DeepWiki:
+You can use Docker to run AutoWiki:
 
 #### Running the Container
 
 ```bash
 # Pull the image from GitHub Container Registry
-docker pull ghcr.io/asyncfuncai/deepwiki-open:latest
+docker pull ghcr.io/asyncfuncai/auto-wiki:latest
 
 # Run the container with environment variables
 docker run -p 8001:8001 -p 3000:3000 \
@@ -452,7 +452,7 @@ docker run -p 8001:8001 -p 3000:3000 \
   -e AZURE_OPENAI_VERSION=your_azure_openai_version \
 
   -v ~/.adalflow:/root/.adalflow \
-  ghcr.io/asyncfuncai/deepwiki-open:latest
+  ghcr.io/asyncfuncai/auto-wiki:latest
 ```
 
 This command also mounts `~/.adalflow` on your host to `/root/.adalflow` in the container. This path is used to store:
@@ -489,7 +489,7 @@ echo "OLLAMA_HOST=your_ollama_host" >> .env
 docker run -p 8001:8001 -p 3000:3000 \
   -v $(pwd)/.env:/app/.env \
   -v ~/.adalflow:/root/.adalflow \
-  ghcr.io/asyncfuncai/deepwiki-open:latest
+  ghcr.io/asyncfuncai/auto-wiki:latest
 ```
 
 This command also mounts `~/.adalflow` on your host to `/root/.adalflow` in the container. This path is used to store:
@@ -505,11 +505,11 @@ If you want to build the Docker image locally:
 
 ```bash
 # Clone the repository
-git clone https://github.com/AsyncFuncAI/deepwiki-open.git
-cd deepwiki-open
+git clone https://github.com/jroell/auto-wiki.git
+cd auto-wiki
 
 # Build the Docker image
-docker build -t deepwiki-open .
+docker build -t auto-wiki .
 
 # Run the container
 docker run -p 8001:8001 -p 3000:3000 \
@@ -520,7 +520,7 @@ docker run -p 8001:8001 -p 3000:3000 \
   -e AZURE_OPENAI_ENDPOINT=your_azure_openai_endpoint \
   -e AZURE_OPENAI_VERSION=your_azure_openai_version \
   -e OLLAMA_HOST=your_ollama_host \
-  deepwiki-open
+  auto-wiki
 ```
 
 #### Using Self-Signed Certificates in Docker
@@ -550,14 +550,14 @@ For more details, see the [API README](./api/README.md).
 
 ## 🔌 OpenRouter Integration
 
-DeepWiki now supports [OpenRouter](https://openrouter.ai/) as a model provider, giving you access to hundreds of AI models through a single API:
+AutoWiki now supports [OpenRouter](https://openrouter.ai/) as a model provider, giving you access to hundreds of AI models through a single API:
 
 - **Multiple Model Options**: Access models from OpenAI, Anthropic, Google, Meta, Mistral, and more
 - **Simple Configuration**: Just add your OpenRouter API key and select the model you want to use
 - **Cost Efficiency**: Choose models that fit your budget and performance needs
 - **Easy Switching**: Toggle between different models without changing your code
 
-### How to Use OpenRouter with DeepWiki
+### How to Use OpenRouter with AutoWiki
 
 1. **Get an API Key**: Sign up at [OpenRouter](https://openrouter.ai/) and get your API key
 2. **Add to Environment**: Add `OPENROUTER_API_KEY=your_key` to your `.env` file
@@ -597,8 +597,8 @@ To use DeepResearch, simply toggle the "Deep Research" switch in the Ask interfa
 
 ## 📱 Screenshots
 
-![DeepWiki Main Interface](screenshots/Interface.png)
-*The main interface of DeepWiki*
+![AutoWiki Main Interface](screenshots/Interface.png)
+*The main interface of AutoWiki*
 
 ![Private Repository Support](screenshots/privaterepo.png)
 *Access private repositories with personal access tokens*
@@ -608,9 +608,9 @@ To use DeepResearch, simply toggle the "Deep Research" switch in the Ask interfa
 
 ### Demo Video
 
-[![DeepWiki Demo Video](https://img.youtube.com/vi/zGANs8US8B4/0.jpg)](https://youtu.be/zGANs8US8B4)
+[![AutoWiki Demo Video](https://img.youtube.com/vi/zGANs8US8B4/0.jpg)](https://youtu.be/zGANs8US8B4)
 
-*Watch DeepWiki in action!*
+*Watch AutoWiki in action!*
 
 ## ❓ Troubleshooting
 
@@ -648,4 +648,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## ⭐ Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=AsyncFuncAI/deepwiki-open&type=Date)](https://star-history.com/#AsyncFuncAI/deepwiki-open&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=jroell/auto-wiki&type=Date)](https://star-history.com/#jroell/auto-wiki&Date)
