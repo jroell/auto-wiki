@@ -47,6 +47,7 @@ wheels/
 .DS_Store
 *.pem
 AGENTS.md
+CLAUDE.md
 WARP.md
 repomix-output.xml
 
